@@ -14,81 +14,79 @@ MSG_SEQ_NUM = 34
 SENDING_TIME = 52
 CHECKSUM = 10
 
-class FixParserError(Exception):
+# class SessionRejectReason:
+#     """FIX 4.4 tag 373 values. Only the ones the parser can produce."""
+#     INVALID_TAG_NUMBER = 0
+#     TAG_SPECIFIED_WITHOUT_VALUE = 4
+#     INCORRECT_DATA_FORMAT = 6
+#     TAG_APPEARS_MORE_THAN_ONCE = 13
+#
+#
+# class FixParserError(Exception):
+#
+#     def __init__(self, message, *, tag=None, reason=SessionRejectReason.INCORRECT_DATA_FORMAT, raw=None):
+#         super().__init__(message)
+#         self.tag = tag
+#         self.reason = reason
+#         self.raw = raw
+
+
+
+class FixParser:
 
     """Raised when bytes cannot be parsed as a FIX message."""
 
     def parse(self, raw: bytes) -> dict[int, str]:
         """Turn one complete FIX message into {tag: value}."""
         fix_message_values = {}
-        decoded_message = raw.decode('ascii')
-
-        for pair in decoded_message.split(SOH):
-
+        for pair in raw.split(SOH):
             if not pair:
                 continue
-            tag, value = pair.split('=',maxsplit=1)
+            tag, value = pair.split(b'=',maxsplit=1)
 
-            fix_message_values[int(tag)] = value
+            fix_message_values[int(tag)] = value.decode("ascii")
 
         return fix_message_values
 
-
 #check sum
-    def compute_checksum(self, message_without_trailer: bytes) -> bytes:
+    def compute_checksum(self, message_without_trailer: bytes) -> str:
             value = sum(message_without_trailer) % 256
-            return f"{value:03d}".encode('ascii')
+            return f"{value:03d}"
 
 
-    def body_length(self,message_without_trailer: bytes) -> int:
-        return len(message_without_trailer)
+    def body_length(self,body: bytes) -> int:
+        return len(body)
 
 
     def serialize(self, fields: dict[int, str], begin_string: str = "FIX.4.4") -> bytes:
         serialized = bytearray()
 
+        if MSG_TYPE in fields:
+            serialized+= f"{MSG_TYPE}={fields[MSG_TYPE]}".encode("ascii") + SOH
+
         for tag, value in fields.items():
 
-            if tag in (BEGIN_STRING | BODY_LENGTH | CHECKSUM):
+            if tag in (BEGIN_STRING, BODY_LENGTH,CHECKSUM, MSG_TYPE):
                 continue
 
-            serialized += f"{tag}={value}".encode('ascii')
-            serialized += SOH
+            serialized += f"{tag}={value}".encode('ascii') + SOH
 
-        head = b"8=" + begin_string + SOH + b"9=" + str(body_length) + SOH
-        checksum = self.compute_checksum(head + serialized)
+        length_of_message = str(self.body_length(serialized)).encode('ascii')
+        #print(f"Length of message method: {length_of_message}")
+
+        #print(f"body={bytes(serialized)!r} len={len(serialized)}")
+
+        head = b"8=" + begin_string.encode("ascii") + SOH + b"9=" + length_of_message + SOH
+
+        checksum = self.compute_checksum(head + serialized).encode('ascii')
         full_message = head + serialized + b"10=" + checksum + SOH
         return full_message
 
 
 
 
+
 class FixFramer:
-    """Append data, then extract every complete message available.
-
-           Algorithm:
-             1. self.buffer.extend(data)
-             2. Loop:
-                a. Find b"8=" — if absent, return what you have so far.
-                   If it is not at index 0, discard everything before it.
-                b. Find the SOH that ends the 9= field. If not present yet,
-                   the message is incomplete — stop and wait for more bytes.
-                c. Parse the BodyLength value.
-                d. Compute where the message ends:
-
-                       end = (index just past the SOH ending 9=)
-                             + body_length
-                             + len(b"10=xxx\\x01")   # always exactly 7
-
-                e. If len(self.buffer) < end, stop and wait.
-                f. Slice out buffer[:end], remove it from the buffer, append to
-                   the results list, and loop again.
-
-           Return the list of complete raw messages.
-           """
-
-
-
     def __init__(self):
         self.buffer = bytearray()
 
@@ -155,18 +153,21 @@ class FixFramer:
 
 
 
-
-
-
-
-
-
-
-
-
-
-
 if __name__=="__main__":
     import doctest
 
+    proto_fix_message = (
+    b"8=FIX.4.4\x019=67\x0135=A\x0149=CLIENT\x0156=SERVER\x0134=1\x01"
+    b"52=20260910-14:30:00.000\x0198=0\x01108=30\x0110=133\x01"
+)
+    #136
+    check_sum_test = b"8=FIX.4.4\x019=5\x0135=0\x01"
+
+    message_body = b"35=0\x01"
+    parser = FixParser()
+    parsedMessage = parser.parse(proto_fix_message)
+    serializedMessage = parser.serialize({35: "A", 49: "CLIENT", 56: "SERVER", 34: "1"})
+
+    serializedMessage_parsed = parser.parse(serializedMessage)
+    length_of_message = serializedMessage_parsed[9]
 
