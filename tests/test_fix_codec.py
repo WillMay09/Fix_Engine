@@ -106,4 +106,42 @@ class TestSerialize:
         assert parser.parse(out)[10] == parser.compute_checksum(out[:end])
 
 
+class TestFramer:
+    def test_single_message(self):
+        assert FixFramer().feed(HEARTBEAT) == [HEARTBEAT]
+
+    def test_two_messages_one_chunk(self):
+        assert FixFramer().feed(HEARTBEAT + LOGON) == [HEARTBEAT, LOGON]
+
+    def test_one_byte_at_a_time(self):
+        framer = FixFramer()
+        out = []
+        for i in range(len(LOGON)):
+            out.extend(framer.feed(LOGON[i:i + 1]))
+        assert out == [LOGON]
+
+    def test_split_mid_message(self):
+        framer = FixFramer()
+        assert framer.feed(LOGON[:20]) == []
+        assert framer.feed(LOGON[20:]) == [LOGON]
+
+    def test_partial_trailing_message_is_buffered(self):
+        framer = FixFramer()
+        assert framer.feed(HEARTBEAT + LOGON[:15]) == [HEARTBEAT]
+        assert framer.feed(LOGON[15:]) == [LOGON]
+
+    def test_incomplete_body_length_field(self):
+        # Cut off inside "9=67" — framer cannot know the length yet.
+        framer = FixFramer()
+        assert framer.feed(LOGON[:13]) == []  # ends mid-way through "9=67"
+        assert framer.feed(LOGON[13:]) == [LOGON]
+
+    def test_resyncs_after_garbage(self):
+        framer = FixFramer()
+        assert framer.feed(b"JUNKJUNK" + HEARTBEAT) == [HEARTBEAT]
+
+    def test_buffer_drains(self):
+        framer = FixFramer()
+        framer.feed(HEARTBEAT * 3)
+        assert len(framer.buffer) == 0
 
