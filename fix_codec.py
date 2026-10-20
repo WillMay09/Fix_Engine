@@ -84,8 +84,6 @@ class FixParser:
 
 
 
-
-
 class FixFramer:
     def __init__(self):
         self.buffer = bytearray()
